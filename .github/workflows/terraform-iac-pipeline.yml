@@ -2,6 +2,11 @@ name: terraform-iac-pipeline
 on: push
 jobs:
   terraform-job:
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      
     runs-on: ubuntu-22.04
     steps:
 
@@ -57,6 +62,12 @@ jobs:
           output_format: cli,sarif
           output_file_path: console,results.sarif
           soft_fail: true
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v2
+        if: success() || failure()
+        with:
+          sarif_file: results.sarif    
           
       - name: TF PLAN
         run: terraform plan
