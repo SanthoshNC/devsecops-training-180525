@@ -1,0 +1,78 @@
+name: EKS Management Simulation (Minikube)
+
+on:
+  workflow_dispatch:
+    inputs:
+      helm-rollback:
+        type: string
+        description: "Simulate Helm rollback. Type 'Confirm' to proceed."
+        default: ""
+      list-pods:
+        type: string
+        description: "Simulate listing all pods. Type 'Confirm' to proceed."
+        default: ""
+      delete-pods:
+        type: string
+        description: "Simulate deleting pods. Enter comma-separated pod names (pod1,pod2)."
+        default: ""
+
+env:
+  NAMESPACE: gha-test
+  HELM_RELEASE_NAME: test-release
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    name: Simulate Kubernetes Ops in Minikube
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Minikube
+        uses: medyagh/setup-minikube@v0.3.4
+
+      - name: Wait for Minikube to be ready
+        run: |
+          kubectl cluster-info
+          minikube status
+
+      - name: Create test namespace
+        run: kubectl create namespace $NAMESPACE || echo "Namespace already exists"
+
+      - name: Install sample Helm chart (nginx)
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+          helm install $HELM_RELEASE_NAME bitnami/nginx -n $NAMESPACE
+          echo "Helm release installed."
+
+      - name: List Pods
+        if: ${{ github.event.inputs.list-pods == 'Confirm' }}
+        run: |
+          echo "Listing all pods in namespace $NAMESPACE..."
+          kubectl get pods -n $NAMESPACE
+
+      - name: Delete Pods
+        if: ${{ github.event.inputs.delete-pods != '' }}
+        run: |
+          IFS=',' read -ra PODS <<< "${{ github.event.inputs.delete-pods }}"
+          for pod in "${PODS[@]}"; do
+            pod=$(echo "$pod" | xargs) # trim spaces
+            echo "Deleting pod: $pod"
+            kubectl delete pod "$pod" -n $NAMESPACE || echo "Pod $pod not found"
+          done
+
+      - name: Simulate Helm Rollback
+        if: ${{ github.event.inputs.helm-rollback == 'Confirm' }}
+        run: |
+          echo "Upgrading Helm release to simulate failed deploy..."
+          helm upgrade $HELM_RELEASE_NAME bitnami/nginx --set badKey=value -n $NAMESPACE || true
+          echo "Now rolling back..."
+          helm rollback $HELM_RELEASE_NAME -n $NAMESPACE || echo "Rollback failed"
+          echo "Rollback done."
+
+      - name: Final Pod Status
+        run: |
+          echo "Final pod status in $NAMESPACE:"
+          kubectl get pods -n $NAMESPACE --show-labels
